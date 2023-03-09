@@ -67,11 +67,11 @@ resource "google_compute_network" "default_network" {
 }
 
 resource "google_compute_subnetwork" "subnet" {
-  project       = module.project-services.project_id
-  name          = "dataproc-subnet"
-  ip_cidr_range = "10.3.0.0/16"
-  region        = var.region
-  network       = google_compute_network.default_network.id
+  project                  = module.project-services.project_id
+  name                     = "dataproc-subnet"
+  ip_cidr_range            = "10.3.0.0/16"
+  region                   = var.region
+  network                  = google_compute_network.default_network.id
   private_ip_google_access = true
 
   depends_on = [
@@ -81,9 +81,9 @@ resource "google_compute_subnetwork" "subnet" {
 
 # Firewall rule for dataproc cluster
 resource "google_compute_firewall" "subnet_firewall_rule" {
-  project  = module.project-services.project_id
-  name     = "dataproc-firewall"
-  network  = google_compute_network.default_network.id
+  project = module.project-services.project_id
+  name    = "dataproc-firewall"
+  network = google_compute_network.default_network.id
 
   allow {
     protocol = "icmp"
@@ -153,47 +153,6 @@ resource "google_project_iam_member" "dataproc_service_account_dataproc_worker_r
 
   depends_on = [
     google_service_account.dataproc_service_account
-  ]
-}
-
-# Set up Workflows service account for the Cloud Function to execute as
-# # Set up the Workflows service account
-resource "google_service_account" "workflow_service_account" {
-  project      = module.project-services.project_id
-  account_id   = "cloud-workflow-sa-${random_id.id.hex}"
-  display_name = "Service Account for Cloud Workflows"
-}
-
-# # Grant the Functions service account Functions Invoker Access
-resource "google_project_iam_member" "workflow_service_account_invoke_role" {
-  project = module.project-services.project_id
-  role    = "roles/cloudfunctions.invoker"
-  member  = "serviceAccount:${google_service_account.workflow_service_account.email}"
-
-  depends_on = [
-    google_service_account.workflow_service_account
-  ]
-}
-
-# # Grant the Functions service account Functions Admin Access
-resource "google_project_iam_member" "workflow_service_account_admin_role" {
-  project = module.project-services.project_id
-  role    = "roles/cloudfunctions.admin"
-  member  = "serviceAccount:${google_service_account.workflow_service_account.email}"
-
-  depends_on = [
-    google_service_account.workflow_service_account
-  ]
-}
-
-# # Grant the Functions service account Functions Invoker Access
-resource "google_project_iam_member" "workflow_service_account_ea_receiver_role" {
-  project = module.project-services.project_id
-  role    = "roles/eventarc.eventReceiver"
-  member  = "serviceAccount:${google_service_account.workflow_service_account.email}"
-
-  depends_on = [
-    google_service_account.workflow_service_account
   ]
 }
 
@@ -501,30 +460,8 @@ resource "google_project_iam_member" "workflow_service_account_invoke_role" {
   ]
 }
 
-# # Grant the Workflow service account Functions admin
-resource "google_project_iam_member" "workflow_service_account_admin_role" {
-  project = module.project-services.project_id
-  role    = "roles/cloudfunctions.admin"
-  member  = "serviceAccount:${google_service_account.workflow_service_account.email}"
-
-  depends_on = [
-    google_service_account.workflow_service_account
-  ]
-}
-
-# # Grant the Workflow service account Eventarc access
-resource "google_project_iam_member" "workflow_service_account_ea_receiver_role" {
-  project = module.project-services.project_id
-  role    = "roles/eventarc.eventReceiver"
-  member  = "serviceAccount:${google_service_account.workflow_service_account.email}"
-
-  depends_on = [
-    google_service_account.workflow_service_account
-  ]
-}
-
 # # Grant the Workflow service account Dataproc admin
-resource "google_project_iam_member" "workflow_service_account_ea_receiver_role" {
+resource "google_project_iam_member" "workflow_service_account_dataproc_role" {
   project = module.project-services.project_id
   role    = "roles/dataproc.admin"
   member  = "serviceAccount:${google_service_account.workflow_service_account.email}"
@@ -535,7 +472,7 @@ resource "google_project_iam_member" "workflow_service_account_ea_receiver_role"
 }
 
 # # Grant the Workflow service account BQ admin
-resource "google_project_iam_member" "workflow_service_account_ea_receiver_role" {
+resource "google_project_iam_member" "workflow_service_account_bqrole" {
   project = module.project-services.project_id
   role    = "roles/bigquery.admin"
   member  = "serviceAccount:${google_service_account.workflow_service_account.email}"
@@ -545,12 +482,15 @@ resource "google_project_iam_member" "workflow_service_account_ea_receiver_role"
   ]
 }
 
-resource "google_workflows_workflow" "example" {
-  name          = "initial-workflow"
-  region        = var.region
-  description   = "Runs post Terraform setup steps for Solution in Console"
+resource "google_workflows_workflow" "workflow" {
+  name            = "initial-workflow"
+  project         = module.project-services.project_id
+  region          = var.region
+  description     = "Runs post Terraform setup steps for Solution in Console"
   service_account = google_service_account.workflow_service_account.id
   source_contents = templatefile("${path.module}/workflow.yaml", { project_id = module.project-services.project_id })
+
+}
 
 # resource "google_storage_bucket_object" "startfile" {
 #   bucket = google_storage_bucket.provisioning_bucket.name
@@ -562,3 +502,76 @@ resource "google_workflows_workflow" "example" {
 #   ]
 
 # }
+
+
+# Create Eventarc Trigger
+// Create a Pub/Sub topic.
+resource "google_pubsub_topic" "topic" {
+  name    = "provisioning-topic"
+  project = module.project-services.project_id
+}
+
+data "google_storage_project_service_account" "gcs_account" {
+  project = module.project-services.project_id
+}
+
+resource "google_pubsub_topic_iam_binding" "binding" {
+  project = module.project-services.project_id
+  topic   = google_pubsub_topic.topic.id
+  role    = "roles/pubsub.publisher"
+  members = ["serviceAccount:${data.google_storage_project_service_account.gcs_account.email_address}"]
+}
+
+resource "google_storage_notification" "notification" {
+  provider       = google
+  bucket         = google_storage_bucket.provisioning_bucket.name
+  payload_format = "JSON_API_V1"
+  topic          = google_pubsub_topic.topic.id
+  depends_on     = [google_pubsub_topic_iam_binding.binding]
+}
+
+resource "google_eventarc_trigger" "trigger_pubsub_tf" {
+  project  = module.project-services.project_id
+  name     = "trigger-pubsub-tf"
+  location = var.region
+  matching_criteria {
+    attribute = "type"
+    value     = "google.cloud.pubsub.topic.v1.messagePublished"
+
+
+  }
+  destination {
+    workflow = google_workflows_workflow.workflow.id
+  }
+
+  transport {
+    pubsub {
+      topic = google_pubsub_topic.topic.id
+    }
+  }
+  service_account = google_service_account.eventarc_service_account.email
+
+  depends_on = [
+    google_workflows_workflow.workflow,
+    google_project_iam_member.eventarc_service_account_invoke_role
+  ]
+}
+
+# Set up Workflows service account for the Cloud Function to execute as
+# # Set up the Workflows service account
+resource "google_service_account" "eventarc_service_account" {
+  project      = module.project-services.project_id
+  account_id   = "eventarc-sa-${random_id.id.hex}"
+  display_name = "Service Account for Cloud Eventarc"
+}
+
+# # Grant the Functions service account Functions Invoker Access
+resource "google_project_iam_member" "eventarc_service_account_invoke_role" {
+  project = module.project-services.project_id
+  role    = "roles/workflows.invoker"
+  member  = "serviceAccount:${google_service_account.eventarc_service_account.email}"
+
+  depends_on = [
+    google_service_account.eventarc_service_account
+  ]
+}
