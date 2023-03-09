@@ -361,6 +361,17 @@ EOF
   ]
 }
 
+resource "google_storage_bucket_object" "pyspark_file" {
+  bucket = google_storage_bucket.provisioning_bucket.name
+  name   = "bigquery.py"
+  source = "${path.module}/assets/bigquery.py"
+
+  depends_on = [
+    google_storage_bucket.provisioning_bucket
+  ]
+
+}
+
 # # Load Queries for Stored Procedure Execution
 # # # Add Sample Queries
 # resource "google_bigquery_routine" "sp_sample_queries" {
@@ -470,6 +481,76 @@ EOF
 #     time_sleep.wait_for_eventarc
 #   ]
 # }
+
+# Set up Workflows service account
+# # Set up the Workflows service account
+resource "google_service_account" "workflow_service_account" {
+  project      = module.project-services.project_id
+  account_id   = "cloud-workflow-sa-${random_id.id.hex}"
+  display_name = "Service Account for Cloud Workflows"
+}
+
+# # Grant the Workflow service account Workflows Admin
+resource "google_project_iam_member" "workflow_service_account_invoke_role" {
+  project = module.project-services.project_id
+  role    = "roles/workflows.admin"
+  member  = "serviceAccount:${google_service_account.workflow_service_account.email}"
+
+  depends_on = [
+    google_service_account.workflow_service_account
+  ]
+}
+
+# # Grant the Workflow service account Functions admin
+resource "google_project_iam_member" "workflow_service_account_admin_role" {
+  project = module.project-services.project_id
+  role    = "roles/cloudfunctions.admin"
+  member  = "serviceAccount:${google_service_account.workflow_service_account.email}"
+
+  depends_on = [
+    google_service_account.workflow_service_account
+  ]
+}
+
+# # Grant the Workflow service account Eventarc access
+resource "google_project_iam_member" "workflow_service_account_ea_receiver_role" {
+  project = module.project-services.project_id
+  role    = "roles/eventarc.eventReceiver"
+  member  = "serviceAccount:${google_service_account.workflow_service_account.email}"
+
+  depends_on = [
+    google_service_account.workflow_service_account
+  ]
+}
+
+# # Grant the Workflow service account Dataproc admin
+resource "google_project_iam_member" "workflow_service_account_ea_receiver_role" {
+  project = module.project-services.project_id
+  role    = "roles/dataproc.admin"
+  member  = "serviceAccount:${google_service_account.workflow_service_account.email}"
+
+  depends_on = [
+    google_service_account.workflow_service_account
+  ]
+}
+
+# # Grant the Workflow service account BQ admin
+resource "google_project_iam_member" "workflow_service_account_ea_receiver_role" {
+  project = module.project-services.project_id
+  role    = "roles/bigquery.admin"
+  member  = "serviceAccount:${google_service_account.workflow_service_account.email}"
+
+  depends_on = [
+    google_service_account.workflow_service_account
+  ]
+}
+
+resource "google_workflows_workflow" "example" {
+  name          = "initial-workflow"
+  region        = var.region
+  description   = "Runs post Terraform setup steps for Solution in Console"
+  service_account = google_service_account.workflow_service_account.id
+  source_contents = templatefile("${path.module}/workflow.yaml", { project_id = module.project-services.project_id })
 
 # resource "google_storage_bucket_object" "startfile" {
 #   bucket = google_storage_bucket.provisioning_bucket.name

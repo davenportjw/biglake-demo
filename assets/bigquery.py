@@ -12,7 +12,7 @@ catalog = os.getenv("lakehouse_catalog","lakehouse_catalog")
 database = os.getenv("lakehouse_db","lakehouse_db")
 bucket = os.getenv("temp_bucket","gcp-lakehouse-provisioner-8a68acad")
 bq_dataset = os.getenv("bq_dataset", "gcp_lakehouse")
-bq_connection = os.getenv("bq_gcs_connection", "us-central1.")
+bq_connection = os.getenv("bq_gcs_connection", "us-central1.gcp_gcs_connection")
 
 # Use the Cloud Storage bucket for temporary BigQuery export data used by the connector.
 spark.conf.set('temporaryGcsBucket', bucket)
