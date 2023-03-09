@@ -1,19 +1,25 @@
 #!/usr/bin/python
 """BigQuery I/O PySpark example."""
 from pyspark.sql import SparkSession
+import os
 
 spark = SparkSession \
   .builder \
   .appName('spark-bigquery-demo') \
   .getOrCreate()
 
-spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse;")
-spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.lakehouse_db;")
-spark.sql("DROP TABLE IF EXISTS lakehouse.lakehouse_db.agg_events_iceberg;")
+catalog = os.get_env("lakehouse_catalog","lakehouse_catalog")
+database = os.get_env("lakehouse_db","lakehouse_db")
+bucket = os.get_env("temp_bucket","gcp-lakehouse-provisioner-8a68acad")
+
+# Create BigLake Catalog and Database if they are not already created.
+spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog};")
+spark.sql(f"CREATE DATABASE IF NOT EXISTS {catalog}.{database};") # 20230309 Fix this starting here.
+spark.sql(f"DROP TABLE IF EXISTS {catalog}.{database}.agg_events_iceberg;")
 
 # Use the Cloud Storage bucket for temporary BigQuery export data used
 # by the connector.
-bucket = "gcp-lakehouse-provisioner-8a68acad"
+
 spark.conf.set('temporaryGcsBucket', bucket)
 
 # Load data from BigQuery.
@@ -30,5 +36,5 @@ word_count.printSchema()
 
 # Saving the data to BigQuery
 word_count.write.format('bigquery') \
-  .option('table', 'wordcount_dataset.wordcount_output') \
+  .option('table', 'gcp_lakehouse.wordcount_output') \
   .save()
