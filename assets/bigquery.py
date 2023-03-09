@@ -12,7 +12,7 @@ catalog = os.getenv("lakehouse_catalog","lakehouse_catalog")
 database = os.getenv("lakehouse_db","lakehouse_db")
 bucket = os.getenv("temp_bucket","gcp-lakehouse-provisioner-8a68acad")
 bq_dataset = os.getenv("bq_dataset", "gcp_lakehouse")
-bq_connection = os.getenvt("bq_gcs_connection", "us-central1.")
+bq_connection = os.getenv("bq_gcs_connection", "us-central1.")
 
 # Use the Cloud Storage bucket for temporary BigQuery export data used by the connector.
 spark.conf.set('temporaryGcsBucket', bucket)
@@ -39,7 +39,7 @@ spark.sql(f"""CREATE TABLE IF NOT EXISTS {catalog}.{database}.agg_events_iceberg
 
 # Create Iceberg Table if not exists
 spark.sql(f"""INSERT INTO {catalog}.{database}.agg_events_iceberg
-    (user_id string, event_count bigint)
+    (user_id, event_count)
     select user_id, count(session_id)
     from events
     group by user_id;
