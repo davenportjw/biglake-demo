@@ -387,6 +387,17 @@ resource "google_project_iam_member" "workflow_service_account_bqrole" {
   ]
 }
 
+# # Grant the Workflow service account access to run as other service accounts
+resource "google_project_iam_member" "workflow_service_account_token_role" {
+  project = module.project-services.project_id
+  role    = "roles/iam.serviceAccountTokenCreator"
+  member  = "serviceAccount:${google_service_account.workflow_service_account.email}"
+
+  depends_on = [
+    google_service_account.workflow_service_account
+  ]
+}
+
 resource "google_workflows_workflow" "workflow" {
   name            = "initial-workflow"
   project         = module.project-services.project_id
