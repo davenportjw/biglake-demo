@@ -346,101 +346,6 @@ resource "google_storage_bucket_object" "pyspark_file" {
 #   ]
 # }
 
-# # Create a Cloud Function resource
-# # # Zip the function file
-# data "archive_file" "bigquery_external_function_zip" {
-#   type        = "zip"
-#   source_dir  = "${path.module}/assets/bigquery-external-function"
-#   output_path = "${path.module}/assets/bigquery-external-function.zip"
-
-#   depends_on = [
-#     google_storage_bucket.provisioning_bucket
-#   ]
-# }
-
-# # # Place the function file on Cloud Storage
-# resource "google_storage_bucket_object" "cloud_function_zip_upload" {
-#   name   = "assets/bigquery-external-function.zip"
-#   bucket = google_storage_bucket.provisioning_bucket.name
-#   source = data.archive_file.bigquery_external_function_zip.output_path
-
-#   depends_on = [
-#     google_storage_bucket.provisioning_bucket,
-#     data.archive_file.bigquery_external_function_zip
-#   ]
-# }
-
-# data "google_storage_project_service_account" "gcs_account" {
-#   project = module.project-services.project_id
-# }
-
-# // GCS CloudEvent triggers, the GCS service account requires the Pub/Sub Publisher
-# resource "google_project_iam_member" "pubsub" {
-#   project = module.project-services.project_id
-
-#   role   = "roles/pubsub.publisher"
-#   member = "serviceAccount:${data.google_storage_project_service_account.gcs_account.email_address}"
-# }
-
-# # # Sleep for a few minutes to let Eventarc sync up
-# resource "time_sleep" "wait_for_eventarc" {
-#   create_duration = "10s"
-#   depends_on = [
-#     google_storage_bucket.provisioning_bucket,
-#     google_storage_bucket.raw_bucket,
-#     google_project_iam_member.dataproc_service_account_bq_connection_role,
-#     google_project_iam_member.pubsub,
-#   ]
-# }
-
-
-# # # Create the function
-# resource "google_cloudfunctions2_function" "function" {
-#   #provider = google-beta
-#   project     = module.project-services.project_id
-#   name        = "bq-sp-transform-${random_id.id.hex}"
-#   location    = var.region
-#   description = "gcs-load-bq"
-
-#   build_config {
-#     runtime     = "python310"
-#     entry_point = "bq_sp_transform"
-#     source {
-#       storage_source {
-#         bucket = google_storage_bucket.provisioning_bucket.name
-#         object = "assets/bigquery-external-function.zip"
-#       }
-#     }
-#   }
-
-#   service_config {
-#     max_instance_count = 1
-#     available_memory   = "256M"
-#     timeout_seconds    = 540
-#     environment_variables = {
-#       PROJECT_ID       = module.project-services.project_id
-#       BUCKET_ID        = google_storage_bucket.raw_bucket.name
-#       EXPORT_BUCKET_ID = google_storage_bucket.export_bucket.name
-#     }
-#     service_account_email = google_service_account.dataproc_service_account.email
-#   }
-
-#   event_trigger {
-#     trigger_region = var.region
-#     event_type     = "google.cloud.storage.object.v1.finalized"
-#     event_filters {
-#       attribute = "bucket"
-#       value     = google_storage_bucket.provisioning_bucket.name
-#     }
-#     retry_policy          = "RETRY_POLICY_RETRY"
-#     service_account_email = google_service_account.workflow_service_account.email
-#   }
-
-#   depends_on = [
-#     time_sleep.wait_for_eventarc
-#   ]
-# }
-
 # Set up Workflows service account
 # # Set up the Workflows service account
 resource "google_service_account" "workflow_service_account" {
@@ -488,20 +393,26 @@ resource "google_workflows_workflow" "workflow" {
   region          = var.region
   description     = "Runs post Terraform setup steps for Solution in Console"
   service_account = google_service_account.workflow_service_account.id
-  source_contents = templatefile("${path.module}/workflow.yaml", { project_id = module.project-services.project_id })
+  source_contents = templatefile("${path.module}/workflow.yaml", {
+    dataproc_service_account = google_service_account.dataproc_service_account.email,
+    provisioner_bucket       = google_storage_bucket.provisioner_bucket.name,
+    warehouse_bucket         = google_storage_bucket.raw_bucket.name,
+    temp_bucket              = google_storage_bucket.raw_bucket.name
+  })
 
 }
 
-# resource "google_storage_bucket_object" "startfile" {
-#   bucket = google_storage_bucket.provisioning_bucket.name
-#   name   = "startfile"
-#   source = "${path.module}/assets/startfile"
+resource "google_storage_bucket_object" "startfile" {
+  bucket = google_storage_bucket.provisioning_bucket.name
+  name   = "startfile"
+  source = "${path.module}/assets/startfile"
 
-#   depends_on = [
-#     google_cloudfunctions2_function.function
-#   ]
+  depends_on = [
+    google_workflows_workflow.workflow,
+    google_eventarc_trigger.trigger_pubsub_tf
+  ]
 
-# }
+}
 
 
 # Create Eventarc Trigger
@@ -557,15 +468,15 @@ resource "google_eventarc_trigger" "trigger_pubsub_tf" {
   ]
 }
 
-# Set up Workflows service account for the Cloud Function to execute as
-# # Set up the Workflows service account
+# Set up Eventarc service account for the Cloud Function to execute as
+# # Set up the Eventarc service account
 resource "google_service_account" "eventarc_service_account" {
   project      = module.project-services.project_id
   account_id   = "eventarc-sa-${random_id.id.hex}"
   display_name = "Service Account for Cloud Eventarc"
 }
 
-# # Grant the Functions service account Functions Invoker Access
+# # Grant the Eventar service account Workflow Invoker Access
 resource "google_project_iam_member" "eventarc_service_account_invoke_role" {
   project = module.project-services.project_id
   role    = "roles/workflows.invoker"
