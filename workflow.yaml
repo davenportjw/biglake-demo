@@ -20,7 +20,7 @@ main:
             - lakehouse_database: lakehouse_database
             - bq_dataset: gcp_lakehouse
             - bq_gcs_connection: $${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")+".gcp_gcs_connection"}
-    - dataflow_serverless_job:
+    - dataproc_serverless_job:
         call: http.post
         args:
             url: $${"https://dataproc.googleapis.com/v1/projects/"+project_id+"/locations/"+location+"/batches"}
